@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import time
@@ -7,10 +6,15 @@ from datetime import datetime, timedelta
 from typing import Any, Dict
 from zoneinfo import ZoneInfo
 
-STORE_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "usage_store.json")
+from supabase import create_client
+
 RATE_LIMIT_SECONDS = 10
 DEFAULT_WEEKLY_LIMIT = int(os.getenv("PANTRYHERO_WEEKLY_LIMIT", "10"))
 PLAN = os.getenv("PANTRYHERO_PLAN", "free")
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+USAGE_TABLE = "usage_limits"
 
 TZ = ZoneInfo("America/New_York")
 
@@ -24,22 +28,24 @@ class LimitResult:
     reason: str
 
 
-def _load_store() -> Dict[str, Any]:
-    if not os.path.exists(STORE_PATH):
-        return {}
-    try:
-        with open(STORE_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return {}
+def _get_client():
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
-def _save_store(store: Dict[str, Any]) -> None:
-    os.makedirs(os.path.dirname(STORE_PATH), exist_ok=True)
-    temp_path = STORE_PATH + ".tmp"
-    with open(temp_path, "w", encoding="utf-8") as f:
-        json.dump(store, f)
-    os.replace(temp_path, STORE_PATH)
+def _fetch_record(user_key: str) -> Dict[str, Any]:
+    client = _get_client()
+    response = client.table(USAGE_TABLE).select("*").eq("user_key", user_key).execute()
+    data = response.data or []
+    if data:
+        return data[0]
+    return {}
+
+
+def _upsert_record(record: Dict[str, Any]) -> None:
+    client = _get_client()
+    client.table(USAGE_TABLE).upsert(record, on_conflict="user_key").execute()
 
 
 def _next_window_end(now_ts: int) -> int:
@@ -64,8 +70,7 @@ def enforce_limits(user_key: str) -> LimitResult:
             "ok",
         )
 
-    store = _load_store()
-    record = store.get(user_key, {})
+    record = _fetch_record(user_key)
 
     last_attempt_ts = float(record.get("last_attempt_ts", 0) or 0)
     delta = now - last_attempt_ts
@@ -80,8 +85,8 @@ def enforce_limits(user_key: str) -> LimitResult:
         )
 
     record["last_attempt_ts"] = now
-    store[user_key] = record
-    _save_store(store)
+    record["user_key"] = user_key
+    record["updated_at"] = datetime.utcnow().isoformat()
 
     window_end_ts = int(record.get("window_end_ts", 0) or 0)
     if window_end_ts == 0 or now >= window_end_ts:
@@ -93,6 +98,7 @@ def enforce_limits(user_key: str) -> LimitResult:
     remaining = max(0, DEFAULT_WEEKLY_LIMIT - count_used)
     reset_in = max(0, window_end_ts - int(now))
     if remaining == 0:
+        _upsert_record(record)
         return LimitResult(
             False,
             {"error": "quota_exceeded", "weekly_limit": DEFAULT_WEEKLY_LIMIT, "remaining": 0, "reset_in_seconds": reset_in},
@@ -101,6 +107,7 @@ def enforce_limits(user_key: str) -> LimitResult:
             "quota_exceeded",
         )
 
+    _upsert_record(record)
     return LimitResult(
         True,
         {},
@@ -112,8 +119,7 @@ def enforce_limits(user_key: str) -> LimitResult:
 
 def record_success(user_key: str) -> Dict[str, Any]:
     now = int(time.time())
-    store = _load_store()
-    record = store.get(user_key, {})
+    record = _fetch_record(user_key)
 
     window_end_ts = int(record.get("window_end_ts", 0) or 0)
     if window_end_ts == 0 or now >= window_end_ts:
@@ -123,8 +129,9 @@ def record_success(user_key: str) -> Dict[str, Any]:
 
     record["count_used"] = int(record.get("count_used", 0) or 0) + 1
     record["last_generation_ts"] = now
-    store[user_key] = record
-    _save_store(store)
+    record["user_key"] = user_key
+    record["updated_at"] = datetime.utcnow().isoformat()
+    _upsert_record(record)
 
     remaining = max(0, DEFAULT_WEEKLY_LIMIT - record["count_used"])
     reset_in = max(0, record["window_end_ts"] - now)

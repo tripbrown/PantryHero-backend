@@ -1,5 +1,5 @@
 #!/bin/sh
-'''exec' "/Users/tripbrown/Desktop/Personal/AI Chef codex copy/PantryHero/backend_api/.venv/bin/python3.11" "$0" "$@"
+'''exec' "/Users/tripbrown/Desktop/Personal/AI Chef codex copy/PantryHero/backend_api/.venv/bin/python" "$0" "$@"
 ' '''
 import sys
 from openai.cli import main
