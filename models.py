@@ -45,3 +45,11 @@ class RecipeOut(BaseModel):
 class GenerateRecipesResponse(BaseModel):
     recipes: List[RecipeOut]
     quota: Optional[dict] = None
+
+
+class SavedRecipeRequest(BaseModel):
+    recipe: dict
+
+
+class SavedRecipesResponse(BaseModel):
+    recipes: List[dict]

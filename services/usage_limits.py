@@ -6,14 +6,12 @@ from datetime import datetime, timedelta
 from typing import Any, Dict
 from zoneinfo import ZoneInfo
 
-from supabase import create_client
+from services.supabase_client import get_supabase_client
 
 RATE_LIMIT_SECONDS = 10
 DEFAULT_WEEKLY_LIMIT = int(os.getenv("PANTRYHERO_WEEKLY_LIMIT", "10"))
 PLAN = os.getenv("PANTRYHERO_PLAN", "free")
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 USAGE_TABLE = "usage_limits"
 
 TZ = ZoneInfo("America/New_York")
@@ -29,9 +27,7 @@ class LimitResult:
 
 
 def _get_client():
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    return get_supabase_client()
 
 
 def _fetch_record(user_key: str) -> Dict[str, Any]:

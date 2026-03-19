@@ -3,8 +3,9 @@ from fastapi import FastAPI, File, Form, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from models import GenerateRecipesRequest, GenerateRecipesResponse
+from models import GenerateRecipesRequest, GenerateRecipesResponse, SavedRecipeRequest, SavedRecipesResponse
 from services.openai_service import describe_image_bytes, extract_ingredients_from_image_bytes, generate_recipes
+from services.saved_recipes_store import fetch_saved_recipes, save_recipe, delete_recipe
 from services.usage_limits import enforce_limits, log_decision, log_rate_event, record_success, DEFAULT_WEEKLY_LIMIT
 
 app = FastAPI(title="PantryHero Scan API")
@@ -119,6 +120,27 @@ async def generate_recipes_endpoint(request: GenerateRecipesRequest, http_reques
             **debug_headers,
         },
     )
+
+
+@app.get("/saved_recipes", response_model=SavedRecipesResponse)
+async def get_saved_recipes(http_request: Request):
+    user_key = get_user_key(http_request)
+    recipes = fetch_saved_recipes(user_key)
+    return {"recipes": recipes}
+
+
+@app.post("/saved_recipes")
+async def create_saved_recipe(request: SavedRecipeRequest, http_request: Request):
+    user_key = get_user_key(http_request)
+    save_recipe(user_key, request.recipe)
+    return {"ok": True}
+
+
+@app.delete("/saved_recipes/{recipe_id}")
+async def remove_saved_recipe(recipe_id: str, http_request: Request):
+    user_key = get_user_key(http_request)
+    delete_recipe(user_key, recipe_id)
+    return {"ok": True}
 
 
 def get_user_key(http_request: Request) -> str:
