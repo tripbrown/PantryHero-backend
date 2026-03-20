@@ -3,8 +3,16 @@ from fastapi import FastAPI, File, Form, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from models import GenerateRecipesRequest, GenerateRecipesResponse, SavedRecipeRequest, SavedRecipesResponse
+from models import (
+    GenerateRecipesRequest,
+    GenerateRecipesResponse,
+    SavedRecipeRequest,
+    SavedRecipesResponse,
+    RecipeFeedbackRequest,
+    RecipeFeedbackResponse,
+)
 from services.openai_service import describe_image_bytes, extract_ingredients_from_image_bytes, generate_recipes
+from services.recipe_feedback_store import fetch_feedback_entries, upsert_feedback, delete_feedback
 from services.saved_recipes_store import fetch_saved_recipes, save_recipe, delete_recipe
 from services.usage_limits import enforce_limits, log_decision, log_rate_event, record_success, DEFAULT_WEEKLY_LIMIT
 
@@ -140,6 +148,35 @@ async def create_saved_recipe(request: SavedRecipeRequest, http_request: Request
 async def remove_saved_recipe(recipe_id: str, http_request: Request):
     user_key = get_user_key(http_request)
     delete_recipe(user_key, recipe_id)
+    return {"ok": True}
+
+
+@app.get("/recipe_feedback", response_model=RecipeFeedbackResponse)
+async def get_recipe_feedback(http_request: Request):
+    user_key = get_user_key(http_request)
+    entries = fetch_feedback_entries(user_key)
+    return {"entries": entries}
+
+
+@app.post("/recipe_feedback")
+async def set_recipe_feedback(request: RecipeFeedbackRequest, http_request: Request):
+    user_key = get_user_key(http_request)
+    feedback = request.feedback.lower().strip()
+    if feedback not in ("liked", "disliked", "none"):
+        return JSONResponse(status_code=400, content={"error": "invalid_feedback"})
+    if feedback == "none":
+        recipe_id = str(request.recipe.get("id") or "").strip()
+        if recipe_id:
+            delete_feedback(user_key, recipe_id)
+        return {"ok": True}
+    upsert_feedback(user_key, request.recipe, feedback)
+    return {"ok": True}
+
+
+@app.delete("/recipe_feedback/{recipe_id}")
+async def clear_recipe_feedback(recipe_id: str, http_request: Request):
+    user_key = get_user_key(http_request)
+    delete_feedback(user_key, recipe_id)
     return {"ok": True}
 
 

@@ -53,3 +53,18 @@ class SavedRecipeRequest(BaseModel):
 
 class SavedRecipesResponse(BaseModel):
     recipes: List[dict]
+
+
+class RecipeFeedbackRequest(BaseModel):
+    recipe: dict
+    feedback: str
+
+
+class RecipeFeedbackEntryOut(BaseModel):
+    recipe: dict
+    feedback: str
+    updated_at: Optional[str] = None
+
+
+class RecipeFeedbackResponse(BaseModel):
+    entries: List[RecipeFeedbackEntryOut]
